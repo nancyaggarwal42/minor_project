@@ -1,24 +1,60 @@
-// it is usewd to create backend server
-const express = require("express");
-// with the help of cors we can talk with our frontend
-const cors = require("cors");
-// helps backend in reading json data sent by frontend
-const bodyparser = require("body-parser");
-// will import routes
-const grammarRoutes = require('./routes/grammarRoutes')
+import express from "express";
+import bodyParser from "body-parser";
+import dotenv from "dotenv";
+import cors from "cors";
+import fetch from "node-fetch";
+
+dotenv.config();
 
 const app = express();
-
-const PORT = 5000;
-
-// we will enable cors and json parsing in our backend
+app.use(bodyParser.json());
 app.use(cors());
-app.use(bodyparser.json());
 
-// by this we tell express - to use grammar routes for all urls starting with the route
-app.use("/app/grammar", grammarRoutes);
+app.post("/api/grammar", async (req, res) => {
+  const { text, language } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
 
-// start's backend
-app.listen(PORT, () => {
-    console.log('server running ${PORT}')
-})
+  try {
+    // LanguageTool API call
+    const apiRes = await fetch(process.env.LT_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        text,
+        language: language === "hindi" ? "hi" : "en",
+      }),
+    });
+
+    const data = await apiRes.json();
+
+    // Map LanguageTool matches to your format
+    const issues = data.matches?.map((m) => ({
+      wrong: m.context.text,
+      reason: m.message,
+    })) || [];
+
+    // For corrected text, apply first replacement or fallback to original text
+    const corrected =
+      data.matches?.reduce((acc, m) => {
+        if (m.replacements?.length) {
+          const start = m.offset;
+          const end = m.offset + m.length;
+          return acc.slice(0, start) + m.replacements[0].value + acc.slice(end);
+        }
+        return acc;
+      }, text) || text;
+
+    res.json({ issues, corrected });
+  } catch (err) {
+    console.log("Grammar API error:", err);
+    res.json({ issues: [], corrected: text });
+  }
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () =>
+  console.log(`GRAMMAR SERVER RUNNING → http://localhost:${PORT}`)
+);

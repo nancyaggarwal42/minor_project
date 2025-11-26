@@ -1,53 +1,36 @@
-// main function
-exports.checkGrammar = async(req, res) => {
-    try{
-        // basically req.data is frontend text
-        const {text} = req.body;
+import fetch from "node-fetch";
+import dotenv from "dotenv";
 
-        // if empty text
-        if(!text || text.trim() === '') {
-            return res.json({
-                message: "Please type anything",
-                wrongTexts: [],
-                correctText: "",
-            });
-        }
+dotenv.config();
 
-        // variable for wrong text
-        let wrongTexts = [];
+export const checkGrammar = async (req, res) => {
+  try {
+    const { text, language } = req.body;
 
-        // variable for correct version of text
-        let corrected = text;
+    const apiRes = await fetch(process.env.LT_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        text,
+        language: language === "hindi" ? "hi" : "en",
+      }),
+    });
 
-        // ex 1
-        if(text.includes("teh")){
-            wrongTexts.push("wrong text - teaching: 'teh' should be 'the'");
-            corrected = text.replace(/teh/g, "the");
-        }
+    const data = await apiRes.json();
 
-        // ex 2
-        if(text.includes("dont")){
-            wrongTexts.push("wrong text - teaching: 'dont' should be 'don't'");
-             corrected = text.replace(/dont/g, "don't");
-        }
+    const issues = data.matches.map((m) => ({
+      wrong: m.context.text,
+      reason: m.message,
+    }));
 
-        // no wrong words
-        if(wrongTexts.length === 0){
-            return res.json({
-                message: 'All good!',
-                wrongTexts: [],
-                correctText: text,
-            })
-        }
+    const corrected = data?.replacements?.[0]?.value || "";
 
-        return res.json({
-            message: 'Corrections found',
-            wrongTexts,
-            correctText: corrected
-        })
-    }
-    catch(error){
-        console.log("Error checking grammar:", error);
-        res.status(500).json({message: "Server error"})
-    }
-}
+    res.json({ issues, corrected });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: "Grammar API failed" });
+  }
+};
